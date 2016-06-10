@@ -16,12 +16,13 @@ class Command:
     """
     Реализация паттерна проектирвоания команда
     """
-    def __init__(self, exceptions_actions):
+    def __init__(self, exceptions_actions, all_special=False):
         """
         При создании связывает список эксепшенов со списком действий на них
         exceptions_action - словарь ексепшин - действие - условия выполения команды
+        all_special: преехват всех специалищированных (не базовых) исключений
         """
-        self.__validation(exceptions_actions)
+        self.__all_special = all_special
 
         if 'default' in exceptions_actions.keys():
             self.__default_action = exceptions_actions['default']
@@ -29,6 +30,7 @@ class Command:
         else:
             self.__default_action = fake
 
+        self.__validation(exceptions_actions)
 
         if exceptions_actions:
             self.__except_action = exceptions_actions
@@ -39,9 +41,12 @@ class Command:
         """
         Проверка данных на валидацию
         """
-        if ('all_special' in exceptions_actions.keys()) &\
-            (len(exceptions_actions) > 2):
-            raise TypeError('all_special используется только с default')
+        if (self.__all_special is True) &\
+            (len(exceptions_actions) > 1):
+            raise TypeError(
+                'Все исключения можно перехватить только\
+ относительно одного класса осключений'
+            )
 
         for excpt in exceptions_actions:
             if not (
@@ -72,7 +77,6 @@ class Command:
 
         return self.__select_except_actions()
 
-        #TODO здесь придлеть метод проверки что command - это метод 
 
 
     def __select_except_actions(self):
@@ -82,9 +86,8 @@ class Command:
         if self.__except_action:
             try:
                 return self.__select_param()
-            except tuple(self.__except_action.keys()) as excpt:
-#                self.__except_action[excpt.__class__](excpt)
-#TODO проверь как будет работать без передачи экземпляра класса эксепшена
+#            except tuple(self.__except_action.keys()) as excpt:
+            except self.__get_exceptions() as excpt:
                 self.__select_action(excpt)
         else:
             return self.__select_param()
@@ -105,9 +108,8 @@ class Command:
         Выбор действия в зависимости от типа ексепшена
         excpt: экземпляр исключения
         """
-        excpt_mro = excpt.__class__.__mro__
-        excpt_class = excpt.__class__
-        if 'all_special' in self.__except_action.keys():
+        if self.__all_special:
+
             action = self.__except_action.get(
                 'all_special',
                 self.__default_action
@@ -119,17 +121,34 @@ class Command:
                 self.__default_action
             )
             action()
-            
+    
+
+    def __get_exceptions(self):
+        """
+        Отбираем 
+        """
+        if self.__all_special:
+            excpt_base = Exception().__class__.__mro__
+            excpt_special = excpt.__class__.__mro__
+            excpt_class = excpt.__class__
+            return tuple(
+                excpt_type for excpt_type in excpt.__class__.__mro__
+                if not excpt_type in Exception().__class__.__mro__
+            )
+        else:
+            return tuple(self.__except_action.keys())
 #===============================================================================
 if __name__=="__main__":
     class My_exception(Exception):pass
+    class E1(My_exception):pass
+    class E2(My_exception):pass
 
     def test_comm(**kwargs):
         """
         Тестовая комманда
         """
         if 'raise' in kwargs.keys():
-            raise My_exception('Ошибка') 
+            raise E2('Ошибка') 
         elif 'param' in kwargs.keys():
             print('Do command with param...')
         else:
@@ -145,7 +164,7 @@ if __name__=="__main__":
     def default_action():
         print('Default action....')
 
-    context = {My_exception:excpt_action, 'default':default_action}
+    context = {E2:excpt_action, 'default':default_action}
     Com = Command(context)    
     Com.execute(test_comm)
     res = Com.execute(
@@ -157,7 +176,7 @@ if __name__=="__main__":
 
 
     context = {My_exception:excpt_action}
-    Com = Command(context)    
+    Com = Command(context, all_special=True)    
     Com.execute(test_comm)
     res = Com.execute(
         test_comm,
