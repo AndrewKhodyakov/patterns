@@ -2,165 +2,204 @@
 # -*- coding: utf-8 -*-
 #===============================================================================
 """
-    Объект комманда для последовательного выполненя действий
-    и рагирования на случай ексепшонов:
-        - получвет на вход контекст выполнения:
-            actions - словарь действий: {'№':вызваемая_функция(метод)}
+    Переписываю_комманду_на_чисто
+        Комманда работает так - получает объект метод_функцию и выполняет ее
+    в опредееленном контексте.
+    контекст пердсатвляет собой словарь в котором ключ - это класс
+    перехавтываемых исключений, а значение это действие которые необходимо
+    выполниить при получении такого искоключения.
+
 """
-import heapq
+import types
+import contextlib
 #===============================================================================
-class Command(object):
+@contextlib.contextmanager
+def context_execute(arg):
     """
-    Одна из реализаций паттерна проектирвоания команда
+    Функция реализцющая менеджер котекста
     """
-    def __init__(self):
+    command = arg
+    try:
+        yield
+    except command.context_keys as excpt:
+        print(excpt.__class__)
+        command.get_context(excpt.__class__)
+    
+
+class Command:
+    """
+    Паттерн комманда
+    """
+    def __init__(self, command_context, all_special=False):
         """
-        При создании связывает список эксепшенов со списком действий на них
-        exceptions_action - словарь ексепшин 
-                          - действие - условия выполения команды
+        command_context - контекст в котором выполняются действия
+        словарь {"":"", ...,"default":} - здесь default - действие по 
+        "умолчанию" - если оно не заданно то перехваченное исключение 
+        "улетает дальше"
+
+        all_special - признак перехвата всех исклдчений уноследванных от 
+            переданного в command_context
         """
-        self.__actions = None
-        self.__actions_quae = None
+        self.__excpetion_mro = Exception().__class__.__mro__
+        self.__context_validation(command_context, all_special)
 
-        self.__params = None
-        self.__params_quae = None
+        self.__all_special = all_special
+        self.context = command_context
 
-        self.__exceptions = None 
+        self.__default_context = context.get('default', self.__not_set_default)
+        if 'default' in context.keys():
+            del self.context['default']
+        self.context_keys = tuple([exc_type for exc_type in self.context.keys()])
+        
 
-
-    @property
-    def set_actions(self, actions):
+    def __not_set_default(self, excpt):
         """
-        Загрузка actions в комманду
-        actions: список задач для выполнения
+        Действие на случай, когда default контекст не задан,
+        надо отправить исключние дальше
         """
-        if isinstance(actions, dict):
-            for k in actions:
-                if not (isinstance(k, int) & isinstance(action[k], self.execute)):
-                    msg = 'Action dict key should be a int, '
-                    msg = msg + 'action dict value should be a function!'
+        raise excpt()
 
-            self.__actions = actions
-            self.__actions_quae = heapq.heapify([i for i in self.__actions])
+    def __context_validation(self, context, all_special):
+        """
+        Валидация словаря контекста
+        context: словарь контекста
+        """
+        self.__empty_dict_test(
+            context,
+            'Контекст command должден быть словарь не нулевой длины'
+        )
 
+        #TODO test
+        if (all_special is True) & (len(context) > 1):
+            raise TypeError(
+                'Флаг all_special - можно использовать только с одинм\
+исключением, для того что бы перехватить унаследованные от него исключения'
+            )
+
+
+        for inst in context:
+            self.__key_validation(inst)
+            self.__value_validation(context[inst])
+
+
+    def __key_validation(self, obj):
+        """
+        Проверка занчения ключей в словаре контекста выполнения коммнад
+        obj: - ключ значения словаря контекста
+        """
+        #TODO test
+        if len(
+            [exc_type for exc_type in obj.__class__.__mro__
+                if (
+                    (exc_type == self.__excpetion_mro[0]) &\
+                        (not (exc_type == 'default'))
+                )
+            ]
+        ):
+            raise TypeError(
+                'Аргумент должен наслдовать главный класс исключений'
+            )
+        
+    
+    def __value_validation(self, obj):
+        """
+        Проветка аргумента, на то что он является фунекцией или методом класса
+        """
+        #TODO test
+        if not (
+            isinstance(obj, types.FunctionType) |\
+            isinstance(obj, types.MethodType)
+        ):
+                raise TypeError(
+                    'Аргумент должен быть либо фуинкцией,\
+ либо методом экземпляра класса'
+                )
+
+    def __empty_dict_test(self, obj, msg):
+        """
+        Проверка объекта на то что он не путстой словарь
+        obj: объект для теста
+        msg: сообщение
+        """
+        #TODO test
+
+        if (len(obj) == 0) | (not isinstance(obj, dict)):
+            raise TypeError(msg)
+
+    def get_context(self, excpt=None):
+        """
+        Получение контекста в зависисомсти от того какой ексепшен перехвачен
+            -- словарь всех унаследованных типов (all_special=True);
+            -- словарь тех которые переданны
+        """
+        if self.__all_special:
+            return self.context.get(
+                self.context[self.context_keys[0]],
+                self.__default_context
+            )
         else:
-            raise TypeError('Actions is not dict!')
+            return self.context.get(excpt, self.__default_context)
 
 
-    @property
-    def set_exceptions(exception_context):
+    def execute(self, command, command_args=None):
         """
-        Загрузка exception_context в комманду
-        exception_context: список задач для выполнения
+        Выполнение комманды в контексте набора исключений
         """
-        if isinstance(exceptions, dict):
-            for k in exception_context:
-                if not (\
-                    isinstance(k, type) & isinstance(exception_context[k],
-                        self.execute)\
-                ):
-                    msg = 'Exception dict key should be a class,'
-                    msg = msg + 'exception dict value should be a function!'
-                    raise TypeError(msg)
+        self.__value_validation(command)
+        command = command
 
-            self.__exceptions = exception_context
-
+        if command_args:
+            #выполнение комманды с парамтерами
+            self.__empty_dict_test(
+                command_args,
+                'Аргументы комманды - должны быть не пустым словарем'
+            )
+            #TODO БАГА ТУТ В ВЫЗОВЕ КОНТЕКТСНОГО МЕНЕДЖЕРА!!!!!!!!
+            with context_execute(self) as out:
+                out = command(**command_args)
         else:
-            raise TypeError('Exceptions is not dict!')
+            with context_execute(self) as out:
+                out = command()
+            #выполнение комманды без парамтеров
+        return out
 
-    @property
-    def set_params(self, params):
-        """
-        Установка параметров для каждого выполняемого action
-        """
-        if isinstance(params, dict):
-            for k in params:
-                if not isinstance(k, int):
-                    raise TypeError('Key in params dict should be int!')
-
-            self.__params = params
-            self.__params_quae = heapq.heapify([i for i in self.__params])
-
-        else:
-            raise TypeError('Params is not dict!')
-
-
-    def __align_action_and_params(self):
-        """
-        Выставялем кажому action его параметры выполнения
-        """
-        pass
-
-
-    def execute(self):
-        """
-        Выполнени комманды 
-        """
-        pass
-
-
-    def execute(self, command, command_param=None, result=False):
-        """
-        Выполнение комманды и отправка сообщения в логгер
-        command : объект-метод, для выполнения
-        command_param :параметры команнды
-        result : признак того что выполняемаый метод что то должен вернуть
-        Выполняет комманду и удаляет сам себя 
-        """
-        #TODO здесь придлеть метод проверки что command - это метод 
-
-        self.__command = command
-        self.__command_param = command_param
-        self.__result = result
-
-        return self.__select_except_actions()
-
-
-    def __select_except_actions(self):
-        """
-        Выбор наличия действий в случае возникновения ексепшенов
-        """
-        if self.__exceptions:
-            try:
-                return self.__select_param()
-            except tuple(self.__exceptions.keys()) as excpt:
-                self.__exceptions[excpt.__class__](excpt)
-
-        else:
-            return self.__select_param()
-            
-
-    def __select_param(self):
-        """
-        Выбор наличия параметров
-        """
-        if self.__command_param:
-
-            if isinstance(self.__command_param, dict):
-                return self.__command(**self.__command_param)
-            else:
-                return self.__command(self.__command_param)
-
-        else:
-            return self.__command()
-
-
-    def __repr__(self):
-        """
-        Вывод комманды в "сыром" виде.
-        """
-        exceptions = '\t - exceptions: {0}'.format(self.__exceptions)
-
-        actions = '\t - actions: {0}'.format(self.__actions)
-
-        param = '\t - parametrs: {0}'.format(self.__params)
-
-        return 'Command content:\n{0}{1}{2}'.format(exceptions, actions, param)
-
-
-    def __src__(self):
-        """
-        Вывод комманды в удобновм виде в печать.
-        """
-        pass
 #===============================================================================
+
+if __name__ == "__main__": 
+    class My_exception(Exception):pass
+    class E1(My_exception):pass
+    class E2(My_exception):pass
+
+    def test_comm(**kwargs):
+        """
+        Тестовая комманда
+        """
+        if 'raise' in kwargs.keys():
+            raise E2('Ошибка') 
+        elif 'param' in kwargs.keys():
+            print('Do command with param...')
+            return 1234
+        else:
+            print('Do command with out param...')
+            return 1234
+
+    def excpt_action():
+        """
+        Действие при ошибке
+        """
+        print('Do emergancy action...')
+
+
+    context = {E2:excpt_action}
+    Com = Command(context)    
+    Com.execute(test_comm)
+    res = Com.execute(
+        test_comm,
+        {'param':12344},
+    )
+    Com.execute(test_comm, {'raise':None})
+
+    context = {My_exception:excpt_action}
+    Com = Command(context, all_special=True)    
+    Com.execute(test_comm, {'raise':None})
+
